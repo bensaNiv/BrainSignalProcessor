@@ -32,7 +32,8 @@ Clone the project
 Go to the project directory
 
 ```bash
-  cd my-project
+  cd BrainSignalProcessor
+
 ```
 
 Open the 'main.py' file and paste your requested path to experiment.
