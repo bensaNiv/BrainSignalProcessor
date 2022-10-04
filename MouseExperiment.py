@@ -1,5 +1,4 @@
 import datetime
-from scipy.signal import decimate
 from Signal import *
 import os
 import pickle
@@ -7,8 +6,15 @@ import pickle
 STEREO_DICT = {'Grooming': 'g', 'Body licking': 'ld', 'Wall licking': 'lw', 'Floor licking': 'lf',
                'Rearing': 'r', 'Back to camera': 'v', 'Other': 'n', 'Immobile': 'i', 'Jump': 'j'}
 
+STEREO_DICT_REV = {'g': 'Grooming', 'ld': 'Body licking', 'lw': 'Wall licking', 'lf': 'Floor licking',
+                   'r': 'Rearing', 'v': 'Back to camera', 'n': 'Other', 'i': 'Immobile', 'j': 'Jump'}
+
 STEREO_BEHAVIORS = ['Grooming', 'Body licking', 'Wall licking', 'Floor licking', 'Rearing', 'Back to camera', 'Other',
                     'Immobile', 'Jump']
+
+STEREO_COLOR_DICT = {'Grooming': '#c21296', 'Body licking': '#06d6a0', 'Wall licking': '#ee476f',
+                     'Floor licking': '#1189b1', 'Rearing': '#ffd169',
+                     'Back to camera': '#b2b2b2', 'Other': '#dadada', 'Immobile': '#f6f6f6', 'Jump': '#2A363B'}
 
 ACTION_DICT = {'n': ('All', 'Other/Move'),
                'v': ('All', 'Not Visible'),
@@ -40,11 +46,11 @@ class Mouse:
         self.path_to_mouse_folder = path_file
         self.experiment = experiment
         self.amount_of_tags_in_second = 0
+        self.name = self.parse_mouse_name()
         self.tags_array = self.create_tags_array()
         self.left_signal, self.right_signal = self.create_signal_for_mouse()
-        self.video_frame_rate = self.right_signal.frame_rate
+        self.tags_frame_rate = self.right_signal.frame_rate
         self.adapt_array()
-
 
     def create_signal_for_mouse(self):
         poly_deg = 3
@@ -87,14 +93,23 @@ class Mouse:
             i += 1
             tags_file = os.path.join(tags_folder, path)
             # tags array was tagged manually
-            if os.path.splitext(tags_file)[1] == ".csv" or os.path.splitext(tags_folder)[1] == ".xls":
-                self.amount_of_tags_in_second = 2
+            if self.experiment.manual_tag:
+                self.amount_of_tags_in_second = 30
                 try:
-                    df_tags = pd.read_excel(path)
-                except FileNotFoundError:
-                    assert "File Not Found"
+                    df = pd.read_excel(tags_file)
+                    df_tags = np.array(df).reshape(df.shape[0])
+                except Exception:
+                    try:
+                        df = pd.read_csv(tags_file)
+                        df_tags = np.array(df).reshape(df.shape[0])
+                    except Exception:
+                        assert "Error in creatig the tags array"
+                behavior_set = set(df_tags)
+                self.experiment.behaviors_container |= behavior_set
             # tags array came from automatic tagger
             if os.path.splitext(tags_file)[1] == ".pkl":
+                if len(self.experiment.behaviors_container) == 0:
+                    self.experiment.behaviors_container = list(STEREO_DICT.values())
                 self.amount_of_tags_in_second = 15
                 with open(tags_file, 'rb') as f:
                     data = pickle.load(f)
@@ -103,17 +118,17 @@ class Mouse:
         return df_tags
 
     def adapt_array(self):
-        '''
+        """
         Function that adapt the tags array according to signal frame rate
         :return:
-        '''
+        """
         cut = 30
         # In case where the frame rate are not equal
-        if self.amount_of_tags_in_second != self.video_frame_rate:
-            common_divider = Signal.gcd(self.amount_of_tags_in_second, self.video_frame_rate)
+        if self.amount_of_tags_in_second != self.tags_frame_rate:
+            common_divider = Signal.gcd(self.amount_of_tags_in_second, self.tags_frame_rate)
             jump = self.amount_of_tags_in_second // common_divider
-            num_part_in_array = self.right_signal.num_parts_in_array
-            n = num_part_in_array * jump
+            num_frames_in_array = self.right_signal.num_frames_in_array
+            n = num_frames_in_array * jump
             self.tags_array = self.tags_array[:n]
             self.tags_array = self.tags_array[::jump]
             # n = len(self.tags_array)//jump * jump
@@ -121,7 +136,19 @@ class Mouse:
             n = len(self.tags_array)
         else:
             cut *= self.amount_of_tags_in_second
-            n = min(len(self.tags_array), len(self.left_signal.z_score))
-            self.tags_array = self.tags_array[:n]
+            n = min(len(self.tags_array), len(self.left_signal.z_score)) + cut
+            # self.tags_array = self.tags_array[:n]
+
+        # update the amout of tags per frame in the expirement
+        if self.experiment.frames_per_second_expiriment == self.experiment.FRAMES_NOT_SET:
+            self.experiment.set_frames_in_expiriment(self.tags_frame_rate)
+
         self.tags_array = self.tags_array[cut:n]
 
+    def parse_mouse_name(self):
+        """
+        Parse the mouse name from the path of the mouse folder
+        :return: The mouse name in the form : CGxxxMSxxx
+        """
+        dir_name = os.path.split(self.path_to_mouse_folder)[1]
+        return dir_name[dir_name.find("CG"):].split("_")[0]
