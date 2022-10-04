@@ -11,8 +11,8 @@ import re
 from scipy.signal import savgol_filter
 from statsmodels import robust
 
-FRAME13 = 80 / 6
 FRAME10 = 10
+FRAME13 = 80 / 6
 FRAME40 = 40
 FRAME15 = 15
 
@@ -37,11 +37,11 @@ class Signal:
         self.poly_degree = poly_degree
         self.frame_rate = 0
         self.result_dir = result_dir
-        self.num_parts_in_array = 0
+        self.num_frames_in_array = 0
         self.baseline_window_in_minute = baseline_window_in_minute
         self.tags_array_len, self.tags_per_second = tags_array_len, tags_per_second
         self.time_vec, self.signal_vec, self.isos_vec = self.manipulation()
-        self.z_score, self.control = self.create_z_score()
+        self.z_score, self.df_f, self.control = self.create_z_score()
         self.file_name_save = self.create_file_name()
         # self.peaks, self.peaks_info, self.peaks_bound = self.find_peaks_for_signal()
 
@@ -82,7 +82,7 @@ class Signal:
         # Sliding window on the filtered signal, create a locality in events
         delta_f_over_f = self.normalized_signal_with_baseline_window(delta_f_over_f, baseline_window_size)
         z_score = stats.zscore(delta_f_over_f)
-        return z_score, isosbesctic_signal_smooth
+        return z_score, delta_f_over_f, isosbesctic_signal_smooth
 
     def robust_z(self):
         # Robust Z score
@@ -96,7 +96,6 @@ class Signal:
 
     def plot_figures_controler(self, start_time, end_time, fif: tuple, save=False):
         # start_time, end_time = self.dave_time_convert(0.5), self.dave_time_convert(1.5)
-        title_time = f"from min {start_time} to min {end_time}"
 
         start_index, end_index = self.convert_time_to_index(start_time, end_time)
         assert start_index < end_index, "Duration Time should be Positive"
@@ -104,13 +103,13 @@ class Signal:
         start_index = 0 if start_index < 0 else start_index
         end_index = self.time_vec.shape[0] if end_index > self.time_vec.shape[0] else end_index
         if fif[0]:
-            self.plot_isosbestic(title_time, start_index, end_index, save)
+            self.plot_isosbestic(start_index, end_index, save)
         if fif[1]:
             self.plot_z_score(start_index, end_index, save)
         if fif[2]:
-            self.plot_combine(title_time, start_index, end_index, save)
+            self.plot_combine(start_index, end_index, save)
 
-    def plot_isosbestic(self, title_time, start, end, save):
+    def plot_isosbestic(self, start, end, save):
         fig, (ax1, ax2) = plt.subplots(2, sharex=True)
         fig.set_figwidth(11)
         fig.set_figheight(8)
@@ -132,7 +131,7 @@ class Signal:
             plt.savefig(self.result_dir + "\\" + self.file_name_save + " control" + ".png")
         plt.show()
 
-    def plot_combine(self, title_time, start, end, save):
+    def plot_combine(self, start, end, save):
         plot1 = plt.subplot2grid((4, 4), (0, 0), colspan=2, rowspan=2)
         plot2 = plt.subplot2grid((4, 4), (0, 2), colspan=2, rowspan=2)
         plot3 = plt.subplot2grid((4, 4), (2, 0), colspan=4, rowspan=2)
@@ -180,21 +179,14 @@ class Signal:
     Help Functions
     '''
 
-    def add_intercept(self, df):
-        df.insert(0, "intercept", np.ones(len(df)))
-
     def convert_time_to_index(self, start, stop):
         return int(self.frame_rate * 60 * start), int(self.frame_rate * 60 * stop)
 
     def create_signal_vec(self, df):
         try:
             return df[[self.region]]
-        except:
+        except Exception:
             assert "No region is detected"
-
-    def create_time_vec(self, df):
-        # adding 0.5 because of the first half minute of the video that was cut
-        return ((df[["Timestamp"]] - df[["Timestamp"]].iloc[0]) / 60) + 0.5
 
     def set_frame_rate(self, gap):
         if 0.06 <= gap <= 0.07:
@@ -213,19 +205,22 @@ class Signal:
             gap = df[["Timestamp"]].iloc[1][0] - df[["Timestamp"]].iloc[0][0]
             self.set_frame_rate(gap)
             if self.frame_rate == self.tags_per_second:
-                n = min(len(df), self.tags_array_len)
-                df = df.iloc[:n]
+                num_frames = min(len(df), self.tags_array_len)
+                df = df.iloc[:num_frames]
+                self.num_frames_in_array = num_frames
                 # Taking the first 30 seconds from the beginning  data frame
                 cut = int(30 * self.frame_rate)
             else:
                 common_divider = Signal.gcd(self.frame_rate, self.tags_per_second)
-                jump_signal = self.frame_rate // common_divider
-                jump_tags = self.tags_per_second // common_divider
-                num_seconds_in_array = min(len(df) // jump_signal, self.tags_array_len // jump_tags)
-                self.num_parts_in_array = num_seconds_in_array
-                n = num_seconds_in_array * jump_signal
-                df = df.iloc[:n]
-                df = df.iloc[::jump_signal]
+                reduce_signal_factor = self.frame_rate // common_divider
+                self.frame_rate = common_divider
+                reduce_tags_factor = self.tags_per_second // common_divider
+                num_frames_after_refactor = min(len(df) // reduce_signal_factor,
+                                                self.tags_array_len // reduce_tags_factor)
+                self.num_frames_in_array = num_frames_after_refactor
+                num_frames = num_frames_after_refactor * reduce_signal_factor
+                df = df.iloc[:num_frames]
+                df = df.iloc[::reduce_signal_factor]
                 cut = int(30 * common_divider)
             return df.iloc[cut:]
 
@@ -234,9 +229,6 @@ class Signal:
 
     def calc_baseline_window_size_according_to_min(self, minute):
         return self.frame_rate * 60 * minute
-
-    def dave_time_convert(self, x):
-        return ((x * 10 ** 4) / 30) / 60
 
     def create_file_name(self):
         side = "Right" if "0" in self.region or "2" in self.region else "Left"
@@ -275,11 +267,11 @@ class Signal:
         plt.show()
 
     def find_peaks_for_signal(self):
-        '''
+        """
         Method that find the peaks for the signal - according to Jessie
         #TODO find out who is that Jessie (Took it from some peaks paper- ask David)
         :return:
-        '''
+        """
         z_score_one_dimensional = self.z_score
         median = np.median(z_score_one_dimensional)
         series = pd.Series(z_score_one_dimensional)
@@ -304,11 +296,23 @@ class Signal:
         return new_delta_f_over_f
 
     @staticmethod
+    def create_time_vec(df):
+        # adding 0.5 because of the first half minute of the video that was cut
+        return ((df[["Timestamp"]] - df[["Timestamp"]].iloc[0]) / 60) + 0.5
+
+    @staticmethod
+    def add_intercept(df):
+        df.insert(0, "intercept", np.ones(len(df)))
+
+    @staticmethod
     def gcd(a, b):
-        '''
+        """
         Finding the greates common divider using Euclid's algorithm
-        '''
+        """
         while b:
             a, b = b, a % b
         return a
 
+    @staticmethod
+    def dave_time_convert(x):
+        return ((x * 10 ** 4) / 30) / 60
