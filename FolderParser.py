@@ -1,7 +1,7 @@
 import sys
 import os
 from Signal import Signal
-from VideoPeaks import VideoPeaks
+# from VideoPeaks import VideoPeaks
 import datetime
 import re
 
@@ -68,18 +68,18 @@ def parse_folder(_folder_path, csv_files_to_translate, _video_files):
 
     # TODO : find from the folder the video and forward its path
     # TODO : Debug this section
-    if should_output_peak_videos:
+    # if should_output_peak_videos:
         # # Create an VideoPeaks Object and save the peak and plot them
-        left_hem_peaks = VideoPeaks(left_g_signal, folder_path, "\\" + top_cam_video, "\\" + side_cam1,
-                                    "\\" + side_cam2)
-        right_hem_peaks = VideoPeaks(right_g_signal, folder_path, "\\" + top_cam_video, "\\" + side_cam1,
-                                     "\\" + side_cam2)
+        # left_hem_peaks = VideoPeaks(left_g_signal, folder_path, "\\" + top_cam_video, "\\" + side_cam1,
+        #                             "\\" + side_cam2)
+        # right_hem_peaks = VideoPeaks(right_g_signal, folder_path, "\\" + top_cam_video, "\\" + side_cam1,
+        #                              "\\" + side_cam2)
         #
         # left_hem_peaks.create_videos_from_peak()
-        left_hem_peaks.plot_signal_with_peaks()
-
-        # right_hem_peaks.create_videos_from_peak()
-        right_hem_peaks.plot_signal_with_peaks()
+        # left_hem_peaks.plot_signal_with_peaks()
+        #
+        # # right_hem_peaks.create_videos_from_peak()
+        # right_hem_peaks.plot_signal_with_peaks()
 
 
 if "__main__" == __name__:
